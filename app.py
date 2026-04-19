@@ -42,10 +42,22 @@ def clean_text(text):
     if not text:
         return ""
     return text.strip()[:2000]
+from flask import Flask, render_template, request, jsonify, send_file
+import edge_tts
+import asyncio
+import uuid
+import os
 
+app = Flask(__name__)
 
 # =========================
-# HOME
+# CONFIG
+# =========================
+OUTPUT_DIR = "audio"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# =========================
+# HOME PAGE
 # =========================
 @app.route("/")
 def home():
@@ -53,38 +65,33 @@ def home():
 
 
 # =========================
-# ELEVENLABS CORE TTS ENGINE
+# TEXT TO SPEECH API
 # =========================
 @app.route("/tts", methods=["POST"])
 def tts():
     try:
-        text = clean_text(request.form.get("text", ""))
-        voice_key = request.form.get("voice", "female_north")
-        rate = format_rate(request.form.get("rate", "2"))
+        text = request.form.get("text", "").strip()
+        voice = request.form.get("voice", "vi-VN-HoaiMyNeural")
+        rate = request.form.get("rate", "+0%")  # FIX lỗi 0%
 
         if not text:
-            return jsonify({"error": "Empty text"}), 400
-
-        voice = VOICES.get(voice_key, VOICES["female_north"])
+            return jsonify({"error": "No text"}), 400
 
         filename = f"{uuid.uuid4()}.mp3"
         filepath = os.path.join(OUTPUT_DIR, filename)
 
         async def run():
-            try:
-                tts = edge_tts.Communicate(text, voice, rate=rate)
-                await tts.save(filepath)
-            except:
-                # fallback engine
-                tts = edge_tts.Communicate(text, VOICES["female_north"], rate="+2%")
-                await tts.save(filepath)
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=voice,
+                rate=rate
+            )
+            await communicate.save(filepath)
 
         asyncio.run(run())
 
         return jsonify({
-            "audio": f"/audio/{filename}",
-            "file": filename,
-            "voice": voice_key
+            "audio": f"/audio/{filename}"
         })
 
     except Exception as e:
@@ -92,15 +99,17 @@ def tts():
 
 
 # =========================
-# AUDIO SERVER
+# SERVE AUDIO FILE
 # =========================
 @app.route("/audio/<filename>")
 def audio(filename):
-    return send_file(os.path.join(OUTPUT_DIR, filename), mimetype="audio/mpeg")
+    path = os.path.join(OUTPUT_DIR, filename)
+    return send_file(path, mimetype="audio/mpeg")
 
 
 # =========================
-# RUN
+# RENDER PORT FIX (QUAN TRỌNG NHẤT)
 # =========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))  # 🔥 FIX RENDER PORT
+    app.run(host="0.0.0.0", port=port)
